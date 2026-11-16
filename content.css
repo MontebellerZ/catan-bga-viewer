@@ -63,7 +63,8 @@
 #cbv-panel .cbv-count,
 #cbv-panel .cbv-face,
 #cbv-panel .cbv-total,
-#cbv-panel .cbv-table td {
+#cbv-panel #cbv-history,
+#cbv-panel #cbv-thefts {
   font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
   font-variant-numeric: lining-nums tabular-nums;
 }
@@ -73,7 +74,7 @@
 #cbv-panel .cbv-zero .cbv-count { text-shadow: none; }
 #cbv-panel .cbv-status { flex: none; margin: 4px 5px 5px; font-size: 10px; color: #63512e; }
 #cbv-panel .cbv-error { color: #922f1e; }
-#cbv-panel .cbv-table { width: 100%; border-collapse: collapse; table-layout: fixed; color: inherit; font: inherit; font-size: 10px; }
+#cbv-panel .cbv-table { width: 100%; border-collapse: collapse; table-layout: fixed; color: inherit; font: inherit; font-size: 11px; }
 #cbv-panel .cbv-table th, #cbv-panel .cbv-table td { padding: 4px 2px; border-bottom: 1px solid #98753860; text-align: center; }
 #cbv-panel .cbv-table th:first-child { width: 46%; text-align: left; }
 #cbv-panel .cbv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
@@ -87,7 +88,7 @@
   border-bottom: 1px solid #98753840;
 }
 #cbv-panel .cbv-latest { background: #fff7d499; border-radius: 3px; box-shadow: inset 2px 0 #4f7136; }
-#cbv-panel .cbv-roll-index { flex: none; width: 16px; text-align: right; font-size: 9px; color: #6d5a34; }
+#cbv-panel .cbv-roll-index { flex: none; width: 16px; text-align: right; font-size: 10px; color: #6d5a34; }
 #cbv-panel .cbv-roll-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 #cbv-panel .cbv-dice-pair { flex: none; display: flex; gap: 2px; }
 #cbv-panel .cbv-die {
