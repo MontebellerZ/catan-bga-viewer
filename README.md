@@ -9,7 +9,7 @@ do mapa, em um painel com quatro abas e visual de pergaminho:
 - **Dados:** frequência das somas de 2 a 12 em barras horizontais empilhadas na vertical,
   com a contagem dentro da barra, alinhada ao fim dela; total de rolagens e percentual ao passar o mouse.
 - **Histórico:** lista das rolagens, a mais recente primeiro, com número da rolagem, jogador,
-  os dois dados desenhados e a soma (7 em vermelho). Rolagens salvas por versões anteriores
+  os dois dados (brancos com pontos pretos, desenhados em SVG) e a soma (7 em vermelho). Rolagens salvas por versões anteriores
   aparecem com dados "?" até serem relidas dos logs.
 - **Roubos:** roubos feitos e sofridos por jogador, somando os provocados por 7 e por cavaleiro.
 

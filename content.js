@@ -9,7 +9,6 @@
   const events = new Map();
   const tabNames = ["costs", "dice", "history", "thefts"];
   const tabLabels = { costs: "Custos", dice: "Dados", history: "Histórico", thefts: "Roubos" };
-  const pips = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
   let players = [];
   let panel;
   let summary;
@@ -144,14 +143,44 @@
     panel.style.setProperty("--cbv-summary-height", style.height);
   }
 
+  // Pip centers on a 3x3 grid (1 = left/top, 2 = middle, 3 = right/bottom).
+  const pipLayout = {
+    1: [[2, 2]],
+    2: [[1, 1], [3, 3]],
+    3: [[1, 1], [2, 2], [3, 3]],
+    4: [[1, 1], [3, 1], [1, 3], [3, 3]],
+    5: [[1, 1], [3, 1], [2, 2], [1, 3], [3, 3]],
+    6: [[1, 1], [3, 1], [1, 2], [3, 2], [1, 3], [3, 3]]
+  };
+  const svgNs = "http://www.w3.org/2000/svg";
+
+  // SVG keeps the pips crisp and centered at small sizes, unlike pixel-positioned CSS dots.
   function die(face) {
     const node = element("span", "cbv-die");
-    if (!pips[face]) {
+    if (!(face >= 1 && face <= 6)) {
       node.classList.add("cbv-die-unknown");
       node.textContent = "?";
       return node;
     }
-    for (let cell = 0; cell < 9; cell += 1) node.append(element("i", pips[face].includes(cell) ? "cbv-pip" : ""));
+    node.dataset.face = String(face);
+    const svg = document.createElementNS(svgNs, "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    const body = document.createElementNS(svgNs, "rect");
+    for (const [key, value] of Object.entries({ x: 0.5, y: 0.5, width: 15, height: 15, rx: 3, fill: "#fff", stroke: "#222", "stroke-width": 1 })) {
+      body.setAttribute(key, value);
+    }
+    svg.append(body);
+    for (const [column, row] of pipLayout[face]) {
+      const pip = document.createElementNS(svgNs, "circle");
+      pip.setAttribute("class", "cbv-pip");
+      pip.setAttribute("cx", String(column * 4));
+      pip.setAttribute("cy", String(row * 4));
+      pip.setAttribute("r", "1.6");
+      pip.setAttribute("fill", "#111");
+      svg.append(pip);
+    }
+    node.append(svg);
     return node;
   }
 
