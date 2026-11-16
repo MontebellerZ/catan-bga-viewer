@@ -1,0 +1,13 @@
+{
+  "name": "catan-bga-viewer",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Extensão para estatísticas de CATAN na Board Game Arena",
+  "scripts": {
+    "test": "node --test tests\\stats.test.js && playwright test",
+    "check": "node --check stats.js && node --check content.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1"
+  }
+}

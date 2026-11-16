@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Catan BGA Viewer",
+  "version": "1.1.0",
+  "description": "Estatísticas de dados e roubos nos logs de mesas de CATAN da Board Game Arena.",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://boardgamearena.com/tableview*",
+        "https://*.boardgamearena.com/tableview*",
+        "https://boardgamearena.com/*/catan?*",
+        "https://*.boardgamearena.com/*/catan?*",
+        "https://boardgamearena.com/catan?*",
+        "https://*.boardgamearena.com/catan?*"
+      ],
+      "all_frames": true,
+      "js": ["stats.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
