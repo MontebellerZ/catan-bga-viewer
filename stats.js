@@ -113,9 +113,14 @@
         const category = reversible ? "build" : /^(?:compra|buys)\b/.test(action) ? "development"
           : /^(?:descarta|discards)\b/.test(action) ? "discard"
             : /^(?:perde|loses)\b/.test(action) ? "loss" : "other";
+        const construction = /^(constroi|melhorou|builds|upgrades)\s+(.+?)\s+(?:por|for)\b/.exec(action);
+        const label = construction
+          ? `${/^(?:constroi|builds)$/.test(construction[1]) ? "construiu" : "melhorou"} ${construction[2]}`
+          : undefined;
         return {
           ...base(`spend:${actor.id}:${signature(spent)}`),
-          type: "spend", actor: actor.id, resources: spent, reversible, category
+          type: "spend", actor: actor.id, resources: spent, reversible, category,
+          ...(label && label.length <= 100 ? { label } : {})
         };
       }
       if (/^(?:negocia com o banco|trades with the supply)\b/.test(action)) {
@@ -158,6 +163,7 @@
     if (event.seq !== undefined && !(Number.isInteger(event.seq) && event.seq >= 0)) return false;
     if (event.reversible !== undefined && typeof event.reversible !== "boolean") return false;
     if (event.category !== undefined && !["build", "development", "discard", "loss", "other"].includes(event.category)) return false;
+    if (event.label !== undefined && (typeof event.label !== "string" || event.label.length > 100)) return false;
     switch (event.type) {
       case "roll":
         return Number.isInteger(event.total) && event.total >= 2 && event.total <= 12
@@ -269,8 +275,8 @@
 
   // totals: exact card counts shown on BGA's player panels. Whatever they hold beyond what the
   // log explains predates the record (from = first move read with this logic) and starts as unknown.
-  // start: those pre-record counts from a previous call, for when the panels lag behind the log.
-  function handEstimate(events, players, { from = 0, totals = {}, start: initial = {} } = {}) {
+  // start: pre-record unknown counts; initialHands: guaranteed resources and unknown cards at a later checkpoint.
+  function handEstimate(events, players, { from = 0, totals = {}, start: initial = {}, initialHands = {} } = {}) {
     const index = new Map(players.map((player, position) => [player.id, position]));
     const ordered = chronological([...events].filter((event) => handTypes.has(event.type)))
       .filter(({ at }) => at[0] !== 0 || at[1] >= from).map(({ event }) => event);
@@ -321,7 +327,11 @@
 
     const start = Array(players.length * WIDTH).fill(0);
     players.forEach((player, position) => {
-      if (Number.isInteger(initial[player.id]) && initial[player.id] >= 0) start[position * WIDTH + UNKNOWN] = initial[player.id];
+      const hand = initialHands[player.id];
+      if (hand) {
+        resources.forEach((resource, slot) => { start[position * WIDTH + slot] = hand.resources[resource]; });
+        start[position * WIDTH + UNKNOWN] = hand.unknown;
+      } else if (Number.isInteger(initial[player.id]) && initial[player.id] >= 0) start[position * WIDTH + UNKNOWN] = initial[player.id];
       else if (Number.isInteger(totals[player.id])) start[position * WIDTH + UNKNOWN] = Math.max(0, totals[player.id] - net[position]);
     });
     let worlds = [{ state: start, weight: 1, inconsistent: false }];

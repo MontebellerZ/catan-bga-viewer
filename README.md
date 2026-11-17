@@ -8,10 +8,14 @@ do mapa, em um painel com quatro abas e visual de pergaminho:
   - *Mão estimada:* quantas cartas de cada recurso cada jogador provavelmente tem agora,
     reconstruído pelos logs: produção, trocas com o banco e entre jogadores, construções,
     cartas de desenvolvimento, descartes do 7 e monopólio. O total de cada jogador vem
-    do contador público do painel da BGA (o Σ sempre bate; `*` avisa se não bater).
+    do contador público do painel da BGA. Durante a atualização, o Σ pode diferir;
+    `*` indica uma divergência detectada na primeira leitura.
     Como a BGA só atualiza esse contador depois da animação de trocas e roubos (e as
-    animações param com a aba em segundo plano), a extensão mantém a estimativa já
-    assentada e só a corrige pelo contador se os dois discordarem por ~4 s com a aba visível.
+    animações param com a aba em segundo plano), a extensão mantém temporariamente a
+    estimativa anterior e aguarda ~4 s de divergência estável com a aba visível. Então
+    usa os totais da BGA: se os logs não explicarem a diferença, os recursos do jogador
+    afetado passam a `?`, sem inventar quais cartas ele possui. Os mínimos garantidos
+    dos demais jogadores são preservados.
     Quem assiste não vê qual carta foi roubada: cada roubo abre as possibilidades
     conforme a mão da vítima (uma carta comum na mão é mais provável), e gastos, trocas
     e "não tem" do monopólio posteriores descartam as possibilidades impossíveis. Para o
@@ -30,6 +34,8 @@ do mapa, em um painel com quatro abas e visual de pergaminho:
     "X ganha …", para ver onde cada um rendeu mais ao longo da partida.
   - *Histórico de recursos:* o botão no topo alterna a visualização geral e o histórico
     (recebimentos, gastos, trocas e recursos identificados em roubos), do mais recente ao mais antigo.
+    Cada ação mostra as variações com sinais, ícones e cores para ganhos/perdas; construções
+    incluem o que foi feito. Nomes de jogadores seguem a cor da mesa.
 - **Dados:** frequência das somas de 2 a 12 em barras horizontais empilhadas na vertical,
   com a contagem dentro da barra, alinhada ao fim dela; total de rolagens e percentual ao passar o mouse.
   O botão no topo alterna a distribuição e o histórico de rolagens, exibido do mais recente ao mais antigo, com jogador, dados
@@ -37,6 +43,8 @@ do mapa, em um painel com quatro abas e visual de pergaminho:
   versões anteriores aparecem com dados "?" até serem relidas dos logs.
 - **Roubos:** roubos feitos e sofridos por jogador, somando os provocados por 7 e por cavaleiro.
   O botão no topo alterna a tabela de roubos e o histórico de quem roubou de quem, do mais recente ao mais antigo.
+  Quando um aviso privado no mesmo turno identifica a carta roubada, o histórico também mostra seu ícone;
+  caso contrário, não tenta adivinhar o recurso.
 - **Custos:** mantém o quadro original do jogo, incluindo ícones, indicação de recursos e taxas de troca atualizados pela BGA.
 
 Não há botão de ocultar nem bolinha flutuante. As contagens continuam sendo
@@ -71,12 +79,17 @@ Não é necessário executar npm ou um servidor. Depois de alterar os arquivos, 
   O painel não afirma ter um histórico completo.
 - Mantém a posição e acompanha as dimensões do quadro original de custos, também
   como espectador. As abas ficam acima dele; dados, histórico, roubos e recursos usam o mesmo espaço.
+  Históricos rolam junto com o conteúdo da aba, e o botão Histórico/Voltar acompanha a rolagem.
 - A produção depende dos logs disponíveis (mesmo limite das demais abas); o potencial é
   recalculado a cada mudança e reflete apenas o tabuleiro atual.
 - A mão estimada só usa um trecho contínuo de logs: se a mesa ficou sem acompanhamento
   e faltam jogadas entre a última visita e os logs carregados, ela recomeça desses logs
   e trata as cartas anteriores como `?`. É um palpite: um log não reconhecido ou
-  expansões (Cidades e Cavaleiros, Navegadores) podem desviar o resultado.
+  expansões (Cidades e Cavaleiros, Navegadores) podem desviar o resultado. Após uma
+  divergência persistente, a sincronização com a BGA é salva localmente, continua a
+  acompanhar novas ações e não apaga os históricos de dados, roubos ou recursos.
+  Uma lacuna ou retrocesso que alcance o ponto de sincronização reinicia a estimativa
+  com os logs ainda disponíveis.
 - Ao identificar um retrocesso, remove apenas construções e trocas com o banco do jogador
   que foram desfeitas. Rolagens, roubos, cartas de desenvolvimento e trocas entre jogadores
   são preservados. Se o cache antigo não informar se um gasto/troca era reversível, a mão

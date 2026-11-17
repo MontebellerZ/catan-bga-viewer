@@ -41,6 +41,9 @@ function fixture(logs, totals) {
     <div id="player_name_1"><a>Ana de Souza</a></div>
     <div id="player_name_2"><a>João</a></div>
     <div id="player_name_3"><a>Jo</a></div>
+    <div id="overall_player_board_1"><div class="cat_color_0000ff"></div></div>
+    <div id="overall_player_board_2"><div class="cat_color_ff0000"></div></div>
+    <div id="overall_player_board_3"><div class="cat_color_00aa00"></div></div>
     <span id="cat_panel_score_resources_1">${totals[1]}</span>
     <span id="cat_panel_score_resources_2">${totals[2]}</span>
     <span id="cat_panel_score_resources_3">${totals[3]}</span>
@@ -98,6 +101,7 @@ test("extensão real no iframe: ordem prioritária das abas, contagens e posiç�
     await expect(frame.locator("#cbv-thefts tbody tr").nth(0).locator("td")).toHaveText(["1", "1"]);
     await expect(frame.locator("#cbv-thefts tbody tr").nth(1).locator("td")).toHaveText(["1", "1"]);
     await expect(frame.locator("#cbv-thefts tbody tr").nth(2).locator("td")).toHaveText(["0", "0"]);
+    await expect(frame.locator("#cbv-thefts tbody tr").nth(0).locator("th")).toHaveCSS("color", "rgb(0, 0, 255)");
     const theftButton = frame.locator("#cbv-thefts-history-button");
     await expect(theftButton).toHaveText("Histórico");
     await expect(theftButton).toHaveAttribute("aria-expanded", "false");
@@ -173,7 +177,9 @@ test("extensão real no iframe: ordem prioritária das abas, contagens e posiç�
     await expect(resourceButton).toHaveText("Voltar");
     await expect(frame.locator("#cbv-resources table")).toHaveCount(0);
     await expect(frame.locator("#cbv-resource-history .cbv-event")).toHaveCount(1);
-    await expect(frame.locator("#cbv-resource-history .cbv-event").first()).toHaveText("João recebeu 1 madeira e 2 minérios.");
+    await expect(frame.locator("#cbv-resource-history .cbv-event").first()).toHaveText("João recebe +1 e +2");
+    await expect(frame.locator("#cbv-resource-history .cbv-event .cbv-res").first()).toHaveAttribute("aria-label", "Madeira");
+    await expect(frame.locator("#cbv-resource-history .cbv-event .cbv-resource-gain").first()).toHaveCSS("color", "rgb(40, 119, 58)");
     await resourceButton.click();
     await expect(resourceButton).toHaveText("Histórico");
     await expect(frame.locator("#cbv-resource-history .cbv-event")).toHaveCount(0);
@@ -211,7 +217,6 @@ test("extensão real no iframe: ordem prioritária das abas, contagens e posiç�
       map.innerHTML = '<div id="cathex_1_1" class="cat_hex cat_Field" style="position:absolute;left:300px;top:300px;width:120px;height:140px"><div class="cat_num_token cat_num_6"></div><div id="cat_robber"></div></div>'
         + '<div id="cathex_1_2" class="cat_hex cat_Hills" style="position:absolute;left:420px;top:300px;width:120px;height:140px"><div class="cat_num_token cat_num_4"></div></div>'
         + '<div class="cat_place_living" style="position:absolute;left:410px;top:290px;width:20px;height:20px"><div class="cat_building cat_settlement cat_color_ff0000"></div></div>';
-      document.body.insertAdjacentHTML("beforeend", '<div id="overall_player_board_2"><div class="cat_color_ff0000"></div></div>');
     });
     const joao = frame.locator("#cbv-resources table").nth(1).locator("tbody tr").nth(1).locator("td");
     await expect(joao).toHaveText(["0", "3", "0", "5", "0", "8"]);
@@ -221,6 +226,108 @@ test("extensão real no iframe: ordem prioritária das abas, contagens e posiç�
     await expect(frame.locator("#cbv-resources")).toContainText("Em vermelho: sob o ladrão.");
     await frame.getByRole("tab", { name: "Recursos", exact: true }).press("ArrowLeft");
     await expect(frame.getByRole("tab", { name: "Custos de construção" })).toBeFocused();
+  } finally {
+    await page.close();
+  }
+});
+
+test("históricos mostram deltas com ícones, cores dos jogadores e rolagem da área inteira", async () => {
+  const theftLogs = Array.from({ length: 24 }, (_, index) =>
+    `<div class="log" id="log_theft_${index}" data-move-id="${100 + index}"><div class="roundedbox">João rouba de Ana de Souza</div></div>`
+  ).join("");
+  const rollLogs = Array.from({ length: 24 }, (_, index) =>
+    `<div class="log" id="log_roll_${index}" data-move-id="${200 + index}"><div class="roundedbox">João lançou <div class="cat_log_token icon_die icon_die3"></div><div class="cat_log_token icon_die icon_die4"></div></div></div>`
+  ).join("");
+  const history = '<div class="log" id="log_theft_revealed" data-move-id="1"><div class="roundedbox">João rouba de Ana de Souza</div></div>'
+    + '<div class="log" id="log_reveal" data-move-id="1"><div class="roundedbox">Você recebe <span><div class="cat_log_token icon_wool"></div></span></div></div>'
+    + '<div class="log" id="log_theft_unknown" data-move-id="2"><div class="roundedbox">Ana de Souza rouba de João</div></div>'
+    + '<div class="log" id="log_gain" data-move-id="30"><div class="roundedbox">João ganha <span><div class="cat_log_token icon_ore"></div></span></div></div>'
+    + '<div class="log" id="log_trade" data-move-id="33"><div class="roundedbox">João negocia com o banco: <span>4<div class="cat_log_token icon_ore"></div></span> → <span><div class="cat_log_token icon_wool"></div></span></div></div>'
+    + '<div class="log" id="log_build" data-move-id="34"><div class="roundedbox">João constrói uma estrada por <span><div class="cat_log_token icon_lumber"></div><div class="cat_log_token icon_brick"></div></span></div></div>'
+    + '<div class="log" id="log_roll" data-move-id="35"><div class="roundedbox">João lançou <div class="cat_log_token icon_die icon_die3"></div><div class="cat_log_token icon_die icon_die4"></div></div></div>'
+    + theftLogs + rollLogs;
+  const page = await context.newPage();
+  try {
+    const { frame } = await table(page, "103", history);
+    await frame.getByRole("tab", { name: "Recursos", exact: true }).click();
+    const resourceButton = frame.locator("#cbv-resources-history-button");
+    await resourceButton.click();
+    const resourceRows = frame.locator("#cbv-resource-history .cbv-event");
+    await expect(resourceRows).toHaveCount(4);
+    await expect(resourceRows.nth(0)).toHaveText("João construiu uma estrada: -1 e -1");
+    expect(await resourceRows.nth(0).locator(".cbv-res").evaluateAll((icons) =>
+      icons.map((icon) => icon.getAttribute("aria-label")))).toEqual(["Madeira", "Tijolo"]);
+    await expect(resourceRows.nth(0).locator(".cbv-resource-loss").first()).toHaveCSS("color", "rgb(177, 38, 27)");
+    await expect(resourceRows.nth(0).locator(".cbv-player-name")).toHaveCSS("color", "rgb(255, 0, 0)");
+    await expect(resourceRows.nth(1)).toHaveText("João trocou com o banco: -4 e +1");
+    expect(await resourceRows.nth(1).locator(".cbv-res").evaluateAll((icons) =>
+      icons.map((icon) => icon.getAttribute("aria-label")))).toEqual(["Minério", "Lã"]);
+    await expect(resourceRows.nth(1).locator(".cbv-resource-gain")).toHaveCSS("color", "rgb(40, 119, 58)");
+    await expect(resourceRows.nth(2)).toHaveText("João recebe +1");
+    await expect(resourceRows.nth(2).locator(".cbv-resource-gain")).toHaveCSS("color", "rgb(40, 119, 58)");
+    await expect(resourceRows.nth(3)).toHaveText("Roubo revelado: você recebe +1");
+    await expect(resourceRows.nth(3).locator(".cbv-res")).toHaveAttribute("aria-label", "Lã");
+
+    await frame.getByRole("tab", { name: "Roubos", exact: true }).click();
+    const theftTableName = frame.locator("#cbv-thefts tbody tr").nth(0).locator("th");
+    await expect(theftTableName).toHaveCSS("color", "rgb(0, 0, 255)");
+    const theftButton = frame.locator("#cbv-thefts-history-button");
+    await theftButton.click();
+    const theftBody = frame.locator("#cbv-thefts");
+    const theftRows = frame.locator("#cbv-theft-history .cbv-event");
+    await expect(theftRows).toHaveCount(26);
+    const revealedTheft = theftRows.filter({ has: frame.locator('.cbv-res[aria-label="Lã"]') });
+    await expect(revealedTheft).toHaveCount(1);
+    await expect(revealedTheft.first()).toContainText("João roubou de Ana de Souza: 1");
+    const unknownTheft = theftRows.filter({ hasText: "Ana de Souza roubou de João" }).first();
+    await expect(unknownTheft.locator(".cbv-res")).toHaveCount(0);
+    await expect(unknownTheft.locator(".cbv-player-name").first()).toHaveCSS("color", "rgb(0, 0, 255)");
+    const scroll = await theftBody.evaluate((body) => ({
+      clientHeight: body.clientHeight,
+      scrollHeight: body.scrollHeight,
+      overflow: getComputedStyle(body).overflowY,
+      innerOverflow: getComputedStyle(body.querySelector(".cbv-history-content")).overflowY,
+      thumb: getComputedStyle(body, "::-webkit-scrollbar-thumb").backgroundColor
+    }));
+    expect(scroll.overflow).toBe("auto");
+    expect(scroll.innerOverflow).toBe("visible");
+    expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight);
+    expect(["rgb(185, 146, 69)", "rgb(163, 126, 53)"]).toContain(scroll.thumb);
+    const headerBefore = await theftButton.boundingBox();
+    await theftBody.evaluate((body) => { body.scrollTop = body.scrollHeight; });
+    const headerAfter = await theftButton.boundingBox();
+    expect(headerAfter.y).toBeLessThan(headerBefore.y);
+
+    await frame.getByRole("tab", { name: "Dados", exact: true }).click();
+    await frame.locator("#cbv-dice-history-button").click();
+    await expect(frame.locator("#cbv-roll-history .cbv-roll-name").first()).toHaveCSS("color", "rgb(255, 0, 0)");
+    await frame.getByRole("tab", { name: "Recursos", exact: true }).click();
+    await frame.locator("#cbv-resources-history-button").click();
+    await expect(frame.locator("#cbv-resources table").first().locator("tbody tr").nth(1).locator("th"))
+      .toHaveCSS("color", "rgb(255, 0, 0)");
+
+    await frame.getByRole("tab", { name: "Dados", exact: true }).click();
+    const diceButton = frame.locator("#cbv-dice-history-button");
+    await expect(diceButton).toHaveText("Voltar");
+    await diceButton.click();
+    await frame.locator("#cbv-panel").evaluate((panel) => panel.style.setProperty("--cbv-summary-height", "360px"));
+    const rowHeights = await frame.locator("#cbv-dice .cbv-row").evaluateAll((rows) =>
+      rows.map((row) => row.getBoundingClientRect().height));
+    expect(Math.max(...rowHeights)).toBeGreaterThanOrEqual(17);
+    await diceButton.click();
+    const diceBody = frame.locator("#cbv-dice");
+    await expect(frame.locator("#cbv-roll-history .cbv-roll")).toHaveCount(25);
+    const diceScroll = await diceBody.evaluate((body) => ({
+      clientHeight: body.clientHeight,
+      scrollHeight: body.scrollHeight,
+      overflow: getComputedStyle(body).overflowY
+    }));
+    expect(diceScroll.overflow).toBe("auto");
+    expect(diceScroll.scrollHeight).toBeGreaterThan(diceScroll.clientHeight);
+    const diceButtonBefore = await diceButton.boundingBox();
+    await diceBody.evaluate((body) => { body.scrollTop = body.scrollHeight; });
+    const diceButtonAfter = await diceButton.boundingBox();
+    expect(diceButtonAfter.y).toBeLessThan(diceButtonBefore.y);
   } finally {
     await page.close();
   }
@@ -273,12 +380,157 @@ test("novos logs, duplicatas e cache verdadeiro do Chrome após recarregar", asy
   }
 });
 
+test("divergência persistente sincroniza a mão com a BGA e continua após recarregar", async () => {
+  const firstGain = '<div class="log" id="log_1" data-move-id="1"><div class="roundedbox">João ganha <span>4<div class="cat_log_token icon_lumber"></div></span></div></div>'
+    + '<div class="log" id="log_2" data-move-id="1"><div class="roundedbox">Ana de Souza ganha <span>2<div class="cat_log_token icon_grain"></div></span></div></div>';
+  const nextGain = '<div class="log" id="log_3" data-move-id="1"><div class="roundedbox">João ganha <span>2<div class="cat_log_token icon_ore"></div></span></div></div>';
+  const page = await context.newPage();
+  try {
+    const { frame, state } = await table(page, "110", firstGain, "catan", { 1: 2, 2: 1, 3: 0 });
+    const hands = frame.locator("#cbv-resources table").first().locator("tbody tr");
+    const row = hands.nth(1).locator("td");
+    const other = hands.nth(0).locator("td");
+    await expect(row).toHaveText(["4", "0", "0", "0", "0", "0", "4*"]);
+
+    await frame.locator("#map_container").evaluate((node) => node.append(document.createTextNode(" ")));
+    await page.waitForTimeout(300);
+    expect(await row.last().textContent()).toBe("4*");
+
+    const corrected = ["0", "0", "0", "0", "0", "1", "1"];
+    await expect(row).toHaveText(corrected, { timeout: 7000 });
+    await expect(other).toHaveText(["0", "0", "0", "2", "0", "0", "2"]);
+    await expect(frame.locator("#cbv-status")).toContainText("BGA");
+    await expect(frame.locator("#cbv-resources table").last().locator("tbody tr").nth(1).locator("td"))
+      .toHaveText(["4", "0", "0", "0", "0", "4"]);
+    await page.waitForTimeout(4500);
+    await expect(row).toHaveText(corrected);
+
+    await frame.locator("#cat_panel_score_resources_2").evaluate((counter) => { counter.textContent = "2"; });
+    await expect(row).toHaveText(["0", "0", "0", "0", "0", "2", "2"], { timeout: 7000 });
+    await expect(other).toHaveText(["0", "0", "0", "2", "0", "0", "2"]);
+    await frame.locator("#logs").evaluate((logs, html) => {
+      logs.insertAdjacentHTML("beforeend", html);
+      document.getElementById("cat_panel_score_resources_2").textContent = "4";
+    }, nextGain);
+    const updated = ["0", "0", "0", "0", "2", "2", "4"];
+    await expect(row).toHaveText(updated);
+    await page.waitForTimeout(350);
+    state.history = firstGain + nextGain;
+    state.totals = { 1: 2, 2: 4, 3: 0 };
+    await page.reload();
+    await expect(row).toHaveText(updated);
+    await expect(other).toHaveText(["0", "0", "0", "2", "0", "0", "2"]);
+
+    const build = '<div class="log" id="log_4" data-move-id="2"><div class="roundedbox">João constrói uma estrada por <span><div class="cat_log_token icon_ore"></div><div class="cat_log_token icon_lumber"></div></span></div></div>';
+    await frame.locator("#logs").evaluate((logs, html) => {
+      logs.insertAdjacentHTML("beforeend", html);
+      document.getElementById("cat_panel_score_resources_2").textContent = "2";
+    }, build);
+    await expect(row).toHaveText(["0", "0", "0", "0", "1", "1", "2"]);
+    await frame.locator("#logs").evaluate((logs, html) => {
+      logs.insertAdjacentHTML("beforeend", html);
+      document.getElementById("cat_panel_score_resources_2").textContent = "4";
+    }, rollback(5, 2));
+    await expect(row).toHaveText(updated);
+
+    await page.waitForTimeout(350);
+    state.history = '<div class="log" id="log_10" data-move-id="10"><div class="roundedbox">João ganha <span>2<div class="cat_log_token icon_brick"></div></span></div></div>';
+    state.totals = { 1: 2, 2: 4, 3: 0 };
+    await page.reload();
+    await expect(row).toHaveText(["0", "2", "0", "0", "0", "2", "4"]);
+  } finally {
+    await page.close();
+  }
+});
+
+test("uma animação atrasada após período ocioso não reinicia a mão", async () => {
+  const first = '<div class="log" id="log_1" data-move-id="1"><div class="roundedbox">João ganha <span>4<div class="cat_log_token icon_lumber"></div></span></div></div>';
+  const next = '<div class="log" id="log_2" data-move-id="2"><div class="roundedbox">João ganha <span><div class="cat_log_token icon_ore"></div></span></div></div>';
+  const page = await context.newPage();
+  try {
+    const { frame } = await table(page, "111", first, "catan", { 1: 0, 2: 4, 3: 0 });
+    const row = frame.locator("#cbv-resources table").first().locator("tbody tr").nth(1).locator("td");
+    await expect(row).toHaveText(["4", "0", "0", "0", "0", "0", "4"]);
+    await page.waitForTimeout(4200);
+    await frame.locator("#logs").evaluate((logs, html) => logs.insertAdjacentHTML("beforeend", html), next);
+    await expect(row).toHaveText(["4", "0", "0", "0", "1", "0", "5"]);
+    await page.waitForTimeout(500);
+    await frame.locator("#cat_panel_score_resources_2").evaluate((counter) => { counter.textContent = "5"; });
+    await page.waitForTimeout(4500);
+    await expect(row).toHaveText(["4", "0", "0", "0", "1", "0", "5"]);
+    await expect(frame.locator("#cbv-status")).not.toContainText("sincronizada com a BGA");
+  } finally {
+    await page.close();
+  }
+});
+
+test("aguarda a aba voltar ao primeiro plano antes de sincronizar", async () => {
+  const gain = '<div class="log" id="log_1" data-move-id="1"><div class="roundedbox">João ganha <span>4<div class="cat_log_token icon_lumber"></div></span></div></div>';
+  const page = await context.newPage();
+  try {
+    const devtools = await context.newCDPSession(page);
+    const contexts = [];
+    devtools.on("Runtime.executionContextCreated", ({ context: created }) => contexts.push(created));
+    await devtools.send("Runtime.enable");
+    const { frame } = await table(page, "113", gain, "catan", { 1: 0, 2: 1, 3: 0 });
+    const row = frame.locator("#cbv-resources table").first().locator("tbody tr").nth(1).locator("td");
+    await expect(row).toHaveText(["4", "0", "0", "0", "0", "0", "4*"]);
+
+    // Headless Chromium keeps tabs visible; override visibility in the extension's isolated world.
+    const tree = await devtools.send("Page.getFrameTree");
+    const gameFrame = tree.frameTree.childFrames.find(({ frame: child }) => child.url.includes("/11/catan?"));
+    const extension = contexts.find((created) => created.auxData.frameId === gameFrame.frame.id
+      && created.origin.startsWith("chrome-extension://"));
+    expect(extension).toBeTruthy();
+    const setHidden = async (hidden) => {
+      const result = await devtools.send("Runtime.evaluate", {
+        contextId: extension.id,
+        expression: `Object.defineProperty(document, "hidden", { configurable: true, value: ${hidden} }); document.dispatchEvent(new Event("visibilitychange"));`
+      });
+      expect(result.exceptionDetails).toBeUndefined();
+    };
+    await setHidden(true);
+    await page.waitForTimeout(4500);
+    expect(await row.last().textContent()).toBe("4*");
+    await setHidden(false);
+    await page.waitForTimeout(300);
+    expect(await row.last().textContent()).toBe("4*");
+    await expect(row).toHaveText(["0", "0", "0", "0", "0", "1", "1"], { timeout: 7000 });
+  } finally {
+    await page.close();
+  }
+});
+
 const undoBase = '<div class="log" id="log_1" data-move-id="1"><div class="roundedbox">João lançou <div class="cat_log_token icon_die icon_die3"></div><div class="cat_log_token icon_die icon_die4"></div></div></div>'
   + '<div class="log" id="log_2" data-move-id="1"><div class="roundedbox">João ganha <span>2<div class="cat_log_token icon_lumber"></div>3<div class="cat_log_token icon_grain"></div></span></div></div>';
 const undoTrade = '<div class="log" id="log_3" data-move-id="2"><div class="roundedbox">João negocia com o banco: <span>3<div class="cat_log_token icon_grain"></div></span> → <span><div class="cat_log_token icon_brick"></div></span></div></div>';
 const undoBuild = '<div class="log" id="log_4" data-move-id="3"><div class="roundedbox">João constrói uma estrada por <span><div class="cat_log_token icon_lumber"></div><div class="cat_log_token icon_brick"></div></span></div></div>';
 const rollback = (id, move) => `<div class="log" id="log_${id}" data-move-id="${move}"><div class="roundedbox">João retrocede</div></div>`
   + `<div class="log" id="log_${id + 1}" data-move-id="${move}"><div class="roundedbox">João desfaz a sua jogada</div></div>`;
+
+test("retrocesso que alcança a sincronização invalida a mão anterior", async () => {
+  const gain = '<div class="log" id="log_1" data-move-id="1"><div class="roundedbox">João ganha <span>4<div class="cat_log_token icon_lumber"></div></span></div></div>';
+  const build = '<div class="log" id="log_2" data-move-id="2"><div class="roundedbox">João constrói uma estrada por <span><div class="cat_log_token icon_lumber"></div><div class="cat_log_token icon_brick"></div></span></div></div>';
+  const page = await context.newPage();
+  try {
+    const { frame, state } = await table(page, "112", gain + build, "catan", { 1: 0, 2: 1, 3: 0 });
+    const row = frame.locator("#cbv-resources table").first().locator("tbody tr").nth(1).locator("td");
+    await expect(row).toHaveText(["0", "0", "0", "0", "0", "1", "1"], { timeout: 7000 });
+    await frame.locator("#logs").evaluate((logs, html) => {
+      logs.insertAdjacentHTML("beforeend", html);
+      document.getElementById("cat_panel_score_resources_2").textContent = "4";
+    }, rollback(3, 2));
+    const restored = ["4", "0", "0", "0", "0", "0", "4"];
+    await expect(row).toHaveText(restored);
+    await page.waitForTimeout(350);
+    state.history = gain + build + rollback(3, 2);
+    state.totals = { 1: 0, 2: 4, 3: 0 };
+    await page.reload();
+    await expect(row).toHaveText(restored);
+  } finally {
+    await page.close();
+  }
+});
 
 test("retrocesso remove todas as ações desfeitas, mesmo com logs antigos ainda visíveis", async () => {
   const page = await context.newPage();

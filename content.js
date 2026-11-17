@@ -10,6 +10,10 @@
   const tabNames = ["resources", "dice", "thefts", "costs"];
   const tabLabels = { costs: "Custos", dice: "Dados", thefts: "Roubos", resources: "Recursos" };
   const resourceLabels = { lumber: "Madeira", brick: "Tijolo", wool: "Lã", grain: "Trigo", ore: "Minério" };
+  const playerPalette = {
+    blue: "#246a9d", brown: "#78512d", green: "#3b7c3d", orange: "#a85d13",
+    purple: "#7547a3", red: "#c0261b", white: "#626262", yellow: "#8a6a00"
+  };
   // BGA terrain class suffix (cat_Forest, ...) -> resource it produces.
   const terrains = { Forest: "lumber", Hills: "brick", Pasture: "wool", Field: "grain", Fields: "grain", Mountain: "ore", Mountains: "ore" };
   let players = [];
@@ -30,20 +34,32 @@
   let handFrom;
   let lastSeenMove;
   let handReset = false;
+  let handCheckpoint;
   let eventsVersion = 0;
   let handCache = { key: "", value: [] };
+
+  function validCheckpoint(checkpoint) {
+    return checkpoint && Number.isInteger(checkpoint.through) && checkpoint.through >= 0
+      && Array.isArray(checkpoint.seen) && checkpoint.seen.every((key) => typeof key === "string")
+      && checkpoint.hands && typeof checkpoint.hands === "object" && !Array.isArray(checkpoint.hands)
+      && Object.values(checkpoint.hands).every((hand) => hand && Number.isInteger(hand.unknown) && hand.unknown >= 0
+        && hand.resources && typeof hand.resources === "object" && !Array.isArray(hand.resources)
+        && stats.resources.every((resource) => Number.isInteger(hand.resources[resource]) && hand.resources[resource] >= 0));
+  }
 
   try {
     const saved = (await chrome.storage.local.get(storageKey))[storageKey];
     if (saved !== undefined) {
       if (!saved || saved.version !== 1 || !Array.isArray(saved.events)
-        || !saved.events.every(stats.validEvent)) {
+        || !saved.events.every(stats.validEvent)
+        || (saved.handCheckpoint !== undefined && !validCheckpoint(saved.handCheckpoint))) {
         throw new Error("Os dados salvos desta mesa possuem formato inválido.");
       }
       for (const event of saved.events) events.set(event.key, event);
       if (Number.isInteger(saved.handFrom)) handFrom = saved.handFrom;
       if (Number.isInteger(saved.lastSeenMove)) lastSeenMove = saved.lastSeenMove;
       handReset = saved.handReset === true;
+      handCheckpoint = saved.handCheckpoint;
       eventsVersion += 1;
     }
   } catch (error) {
@@ -69,7 +85,8 @@
             version: 1,
             events: [...events.values()].filter((event) => event.persistent),
             ...(handFrom === undefined ? {} : { handFrom, lastSeenMove }),
-            ...(handReset ? { handReset: true } : {})
+            ...(handReset ? { handReset: true } : {}),
+            ...(handCheckpoint ? { handCheckpoint } : {})
           }
         });
       }
@@ -78,6 +95,11 @@
     } finally {
       saving = false;
     }
+  }
+
+  function scheduleSave() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 150);
   }
 
   function element(tag, className, text) {
@@ -202,13 +224,14 @@
   }
 
   function renderRollHistory(rolls) {
-    const names = new Map(players.map((player) => [player.id, player.name]));
+    const playersById = new Map(players.map((player) => [player.id, player]));
     const list = element("ol", "cbv-history");
     list.id = "cbv-roll-history";
     if (!rolls.length) list.append(element("li", "cbv-event-empty", "Nenhuma rolagem ainda."));
     for (let index = rolls.length - 1; index >= 0; index -= 1) {
       const roll = rolls[index];
-      const name = names.get(roll.actor) || "—";
+      const player = playersById.get(roll.actor);
+      const name = player?.name || "—";
       const item = element("li", `cbv-roll${index === rolls.length - 1 ? " cbv-latest" : ""}`);
       item.title = `Rolagem ${index + 1}: ${name} tirou ${roll.faces ? roll.faces.join(" + ") + " = " : ""}${roll.total}`;
       item.setAttribute("aria-label", item.title);
@@ -216,7 +239,7 @@
       dice.append(die(roll.faces?.[0]), die(roll.faces?.[1]));
       item.append(
         element("span", "cbv-roll-index", String(index + 1)),
-        element("span", "cbv-roll-name", name),
+        playerNameNode(roll.actor, name, "cbv-roll-name"),
         dice,
         element("span", `cbv-sum${roll.total === 7 ? " cbv-seven" : ""}`, String(roll.total))
       );
@@ -238,6 +261,7 @@
     const summaryTooltip = summaryHeading.title;
     const update = () => {
       const showingHistory = historyView[key];
+      view.classList.toggle("cbv-showing-history", showingHistory);
       button.textContent = showingHistory ? "Voltar" : "Histórico";
       button.setAttribute("aria-expanded", String(showingHistory));
       summaryHeading.textContent = showingHistory ? historyTitle : summaryTitle;
@@ -262,51 +286,143 @@
       return list;
     }
     for (let index = entries.length - 1; index >= 0; index -= 1) {
-      const item = element("li", `cbv-event${index === entries.length - 1 ? " cbv-latest" : ""}`, describe(entries[index]));
+      const item = element("li", `cbv-event${index === entries.length - 1 ? " cbv-latest" : ""}`);
+      const description = describe(entries[index]);
+      if (typeof description === "string") item.textContent = description;
+      else item.append(description);
       item.title = item.textContent;
       list.append(item);
     }
     return list;
   }
 
-  function renderTheftHistory(events) {
-    const names = new Map(players.map((player) => [player.id, player.name]));
-    return historyList("cbv-theft-history", events,
-      (event) => `${names.get(event.actor) || "Jogador"} roubou de ${names.get(event.victim) || "jogador"}.`,
-      "Nenhum roubo registrado.");
+  function moveId(event) {
+    return /^move:(\d+):/.exec(event.key)?.[1];
   }
 
-  function formatResources(amounts) {
-    const plurals = { lumber: "madeiras", brick: "tijolos", wool: "lãs", grain: "trigos", ore: "minérios" };
-    const parts = stats.resources.filter((resource) => amounts[resource]).map((resource) => {
-      const amount = amounts[resource];
-      return `${amount} ${amount === 1 ? resourceLabels[resource].toLowerCase() : plurals[resource]}`;
+  function renderTheftHistory(thefts, resourceEvents) {
+    const theftsByMove = new Map();
+    for (const event of thefts) {
+      const move = moveId(event);
+      if (!move) continue;
+      if (!theftsByMove.has(move)) theftsByMove.set(move, []);
+      theftsByMove.get(move).push(event);
+    }
+    const revealedResources = new Map();
+    for (const event of resourceEvents) {
+      if (event.type !== "reveal") continue;
+      const move = moveId(event);
+      const matchingThefts = theftsByMove.get(move);
+      const revealed = Object.entries(event.resources).filter(([, amount]) => amount > 0);
+      const total = revealed.reduce((sum, [, amount]) => sum + amount, 0);
+      if (move && matchingThefts?.length === 1 && revealed.length === 1 && total === 1 && !revealedResources.has(move)) {
+        revealedResources.set(move, revealed[0][0]);
+      }
+    }
+    return historyList("cbv-theft-history", thefts, (event) => {
+      const description = element("span", "cbv-history-line");
+      description.append(
+        playerNameNode(event.actor, "Jogador", "cbv-player-name"),
+        document.createTextNode(" roubou de "),
+        playerNameNode(event.victim, "jogador", "cbv-player-name")
+      );
+      const resource = revealedResources.get(moveId(event));
+      if (resource) {
+        description.append(document.createTextNode(": 1 "), resourceIcon(resource));
+      } else {
+        description.append(document.createTextNode("."));
+      }
+      return description;
+    }, "Nenhum roubo registrado.");
+  }
+
+  function appendDeltas(container, amounts, direction) {
+    const changed = stats.resources.filter((resource) => amounts[resource] > 0);
+    changed.forEach((resource, index) => {
+      if (index) container.append(document.createTextNode(" e "));
+      const sign = direction === "gain" ? "+" : "-";
+      const delta = element("span", `cbv-resource-delta cbv-resource-${direction}`, `${sign}${amounts[resource]}`);
+      delta.append(resourceIcon(resource));
+      container.append(delta);
     });
-    if (parts.length < 2) return parts[0] || "";
-    return `${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}`;
   }
 
   function describeResourceEvent(event) {
-    const names = new Map(players.map((player) => [player.id, player.name]));
-    const actor = names.get(event.actor) || "Jogador";
-    if (event.type === "gain") return `${actor} recebeu ${formatResources(event.resources)}.`;
-    if (event.type === "spend") {
-      const text = formatResources(event.resources);
-      if (event.category === "build") return `${actor} construiu usando ${text}.`;
-      if (event.category === "development") return `${actor} comprou carta de desenvolvimento por ${text}.`;
-      if (event.category === "discard") return `${actor} descartou ${text}.`;
-      if (event.category === "loss") return `${actor} perdeu ${text}.`;
-      return `${actor} usou ${text}.`;
+    const description = element("span", "cbv-history-line");
+    const actor = playerNameNode(event.actor, "Jogador", "cbv-player-name");
+    if (event.type === "gain") {
+      description.append(actor, document.createTextNode(" recebe "));
+      appendDeltas(description, event.resources, "gain");
+    } else if (event.type === "spend") {
+      const action = event.category === "build" ? event.label || "construiu"
+        : event.category === "development" ? "comprou carta de desenvolvimento"
+          : event.category === "discard" ? "descartou"
+            : event.category === "loss" ? "perdeu" : "usou";
+      description.append(actor, document.createTextNode(` ${action}: `));
+      appendDeltas(description, event.resources, "loss");
+    } else if (event.type === "trade") {
+      if (event.partner) {
+        description.append(
+          actor,
+          document.createTextNode(" trocou com "),
+          playerNameNode(event.partner, "jogador", "cbv-player-name"),
+          document.createTextNode(": ")
+        );
+      } else {
+        description.append(actor, document.createTextNode(" trocou com o banco: "));
+      }
+      appendDeltas(description, event.gives, "loss");
+      description.append(document.createTextNode(" e "));
+      appendDeltas(description, event.gets, "gain");
+      if (event.partner) {
+        description.append(
+          document.createTextNode("; "),
+          playerNameNode(event.partner, "jogador", "cbv-player-name"),
+          document.createTextNode(": ")
+        );
+        appendDeltas(description, event.gets, "loss");
+        description.append(document.createTextNode(" e "));
+        appendDeltas(description, event.gives, "gain");
+      }
+    } else {
+      description.append(document.createTextNode(`Roubo revelado: você ${event.direction === "gain" ? "recebe" : "perde"} `));
+      appendDeltas(description, event.resources, event.direction);
     }
-    if (event.type === "trade") {
-      const partner = event.partner ? `com ${names.get(event.partner) || "jogador"}` : "com o banco";
-      return `${actor} trocou ${formatResources(event.gives)} por ${formatResources(event.gets)} ${partner}.`;
-    }
-    return `Roubo revelado: você ${event.direction === "gain" ? "recebeu" : "perdeu"} ${formatResources(event.resources)}.`;
+    return description;
   }
 
   function renderResourceHistory(events) {
     return historyList("cbv-resource-history", events, describeResourceEvent, "Nenhuma movimentação de recursos registrada.");
+  }
+
+  function playerNameNode(id, fallback, className) {
+    const player = players.find((candidate) => candidate.id === id);
+    const name = element("span", className, player?.name || fallback);
+    if (player?.color) name.style.color = player.color;
+    return name;
+  }
+
+  function playerColor(id) {
+    const board = document.getElementById(`overall_player_board_${id}`);
+    const marker = board?.querySelector('[class*="cat_color_"]');
+    const token = [...(marker?.classList || [])].map((name) => /^cat_color_(.+)$/.exec(name)?.[1]).find(Boolean);
+    if (!token) return "";
+    if (/^[\da-f]{6}$/i.test(token)) return `#${token}`;
+    return playerPalette[token.toLowerCase()] || "";
+  }
+
+  function resourceIcon(resource) {
+    const icon = element("span", `cbv-res cat_log_token icon_${resource}`);
+    const sprite = readResourceSprite();
+    if (sprite) icon.style.backgroundImage = sprite;
+    else {
+      icon.classList.add("cbv-res-text");
+      icon.textContent = resourceLabels[resource].slice(0, 2);
+    }
+    icon.setAttribute("role", "img");
+    icon.setAttribute("aria-label", resourceLabels[resource]);
+    icon.title = resourceLabels[resource];
+    return icon;
   }
 
   function readBoard() {
@@ -392,6 +508,7 @@
       const name = element("th", "cbv-name", row.name);
       name.scope = "row";
       name.title = row.name;
+      if (row.color) name.style.color = row.color;
       line.append(name);
       let sum = 0;
       for (const resource of stats.resources) {
@@ -429,7 +546,7 @@
       cell: (hand) => ({
         text: `${hand.total}${hand.consistent ? "" : "*"}`, className: "cbv-sum-col",
         title: hand.consistent ? `${hand.name} · ${cards(hand.total)}`
-          : `${hand.name} · ${cards(hand.total)} pelos logs, mas a BGA mostra ${hand.bga}: algum log não foi lido`
+          : `${hand.name} · ${cards(hand.total)} pelos logs, mas a BGA mostra ${hand.bga}: aguardando sincronização`
       })
     }];
     return resourceTable(hands, {
@@ -490,39 +607,91 @@
     return totals;
   }
 
-  // BGA updates a panel's card count only after the trade/theft animation (and animations stall
-  // while the tab is hidden), so log and panels disagree for a while after many actions. Keep the
-  // pre-record counts already settled; only re-derive them from the panels when both keep
-  // disagreeing for SETTLE_MS of visible time, which means a log line was really missed.
+  // Panel counters can lag the logs until BGA's animation completes.
   const SETTLE_MS = 4000;
   let settled = { from: undefined, start: null };
-  let mismatchSince = 0;
+  let mismatchSince;
+  let mismatchKey = "";
+  const warnedMismatch = new Set();
   let settleTimer;
+
+  function resetMismatchTimer() {
+    mismatchSince = undefined;
+    mismatchKey = "";
+    clearTimeout(settleTimer);
+  }
+
   function estimateHands() {
     const totals = readHandTotals();
     const from = handFrom ?? Infinity;
     const estimate = (options) => {
-      const key = JSON.stringify([eventsVersion, options, players]);
-      if (handCache.key !== key) handCache = { key, value: stats.handEstimate(events.values(), players, options) };
+      const key = JSON.stringify([eventsVersion, handCheckpoint, options, players]);
+      if (handCache.key !== key) {
+        let recorded = events.values();
+        if (handCheckpoint) {
+          const seen = new Set(handCheckpoint.seen);
+          // A move may gain new log lines after the checkpoint was taken.
+          recorded = [...recorded].filter((event) => {
+            const move = moveId(event);
+            return move ? Number(move) > handCheckpoint.through
+              || (Number(move) === handCheckpoint.through && !seen.has(event.key)) : !seen.has(event.key);
+          });
+        }
+        handCache = { key, value: stats.handEstimate(recorded, players, options) };
+      }
       return handCache.value;
     };
     let value;
-    if (settled.start && settled.from === handFrom) {
-      value = estimate({ from, start: settled.start });
-      const agrees = value.every((hand) => !Number.isInteger(totals[hand.id]) || totals[hand.id] === hand.total);
-      const now = Date.now();
-      if (agrees || document.hidden) mismatchSince = now;
-      else if (now - mismatchSince < SETTLE_MS) {
-        clearTimeout(settleTimer);
-        settleTimer = setTimeout(render, SETTLE_MS - (now - mismatchSince) + 50);
-      } else value = undefined;
-    }
-    if (!value) {
+    let firstEstimate = false;
+    if (handCheckpoint) value = estimate({ initialHands: handCheckpoint.hands });
+    else if (settled.start && settled.from === handFrom) value = estimate({ from, start: settled.start });
+    else {
       value = estimate({ from, totals });
       settled = { from: handFrom, start: Object.fromEntries(value.map((hand) => [hand.id, hand.initial])) };
-      mismatchSince = Date.now();
+      firstEstimate = true;
     }
-    return value.map((hand) => ({ ...hand, bga: totals[hand.id] }));
+
+    const differs = (hand) => Number.isInteger(totals[hand.id]) && totals[hand.id] !== hand.total;
+    const mismatches = new Set(value.filter(differs).map((hand) => hand.id));
+    for (const id of warnedMismatch) if (!mismatches.has(id)) warnedMismatch.delete(id);
+    // Keep an initial warning steady; later differences get a grace period for animations.
+    if (firstEstimate) for (const id of mismatches) warnedMismatch.add(id);
+
+    if (!mismatches.size || document.hidden) resetMismatchTimer();
+    else {
+      const key = JSON.stringify([eventsVersion, handFrom, totals, players.map((player) => player.id)]);
+      const now = performance.now();
+      if (key !== mismatchKey) {
+        mismatchKey = key;
+        mismatchSince = now;
+      }
+      const elapsed = now - mismatchSince;
+      if (elapsed < SETTLE_MS || scanTimer !== undefined) {
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(render, scanTimer === undefined ? SETTLE_MS - elapsed + 50 : 150);
+      } else {
+        const reconstructed = handCheckpoint ? null : estimate({ from, totals });
+        if (reconstructed && reconstructed.every((hand) => !differs(hand))) {
+          value = reconstructed;
+          settled = { from: handFrom, start: Object.fromEntries(value.map((hand) => [hand.id, hand.initial])) };
+        } else {
+          const hands = Object.fromEntries(value.map((hand) => [hand.id, differs(hand)
+            ? { resources: Object.fromEntries(stats.resources.map((resource) => [resource, 0])), unknown: totals[hand.id] }
+            : { resources: hand.hand, unknown: hand.unassigned }]));
+          const through = lastSeenMove ?? 0;
+          const seen = [...events.values()].filter((event) => {
+            const move = moveId(event);
+            return !move || Number(move) === through;
+          }).map((event) => event.key);
+          handCheckpoint = { through, seen, hands };
+          value = stats.handEstimate([], players, { initialHands: hands });
+          scheduleSave();
+        }
+        warnedMismatch.clear();
+        resetMismatchTimer();
+      }
+    }
+    return value.map((hand) => ({ ...hand, bga: totals[hand.id], consistent: !warnedMismatch.has(hand.id) }));
   }
 
   function render() {
@@ -535,7 +704,7 @@
     const potential = stats.potential(board, players);
     const hands = estimateHands();
     const signature = JSON.stringify([summary, rolls, theftHistory, resourceEvents, potential, hands, board.visible, storageError,
-      rollbackWarning, handReset, Boolean(logs), readResourceSprite()]);
+      rollbackWarning, handReset, Boolean(handCheckpoint), Boolean(logs), readResourceSprite()]);
     if (signature === lastRender) return;
     lastRender = signature;
     renderResources(summary, board, potential, hands, resourceEvents);
@@ -580,16 +749,18 @@
       const name = element("th", "cbv-name", player.name);
       name.scope = "row";
       name.title = player.name;
+      if (player.color) name.style.color = player.color;
       row.append(name, element("td", "", String(player.made)), element("td", "", String(player.suffered)));
       body.append(row);
     }
     tableNode.append(head, body);
     theftSummary.append(tableNode);
     thefts.replaceChildren(historySwitch("thefts", theftHeading, theftSummary, "Histórico de roubos",
-      renderTheftHistory(theftHistory)));
+      renderTheftHistory(theftHistory, resourceEvents)));
     const status = panel.querySelector("#cbv-status");
     status.textContent = storageError || rollbackWarning || (handReset
       ? "Estimativa reiniciada após retrocesso: o cache antigo não identificava quais ações eram reversíveis."
+      : handCheckpoint ? "Mão sincronizada com a BGA após divergência; cartas sem identificação aparecem em ?."
       : !logs ? "Aguardando os logs da mesa..."
       : "Histórico lido + salvo nesta mesa. Logs antigos não carregados podem faltar.");
     status.classList.toggle("cbv-error", Boolean(storageError || rollbackWarning || handReset));
@@ -602,10 +773,14 @@
       if (!mount()) return;
       lastRender = "";
     }
-    players = [...document.querySelectorAll('[id^="player_name_"]')].map((node) => ({
-      id: node.id.slice("player_name_".length),
-      name: (node.querySelector("a") || node).textContent.replace(/\s+/g, " ").trim()
-    })).filter((player) => player.name);
+    players = [...document.querySelectorAll('[id^="player_name_"]')].map((node) => {
+      const id = node.id.slice("player_name_".length);
+      return {
+        id,
+        name: (node.querySelector("a") || node).textContent.replace(/\s+/g, " ").trim(),
+        color: playerColor(id)
+      };
+    }).filter((player) => player.name);
     logs = document.getElementById("logs");
     const nodes = [...(logs?.querySelectorAll(".log[id]") || [])];
     const entries = nodes.map((log, index) => ({
@@ -642,6 +817,11 @@
       && hasMove(entry) && !events.has(entry.event.key));
     if (newRollbacks.length) {
       const cutoff = Math.min(...newRollbacks.map((entry) => entry.move));
+      if (handCheckpoint && cutoff <= handCheckpoint.through) {
+        handCheckpoint = undefined;
+        settled = { from: undefined, start: null };
+        changed = true;
+      }
       const activeEvents = new Map(active.filter((entry) => entry.event).map((entry) => [entry.event.key, entry.event]));
       let ambiguousLegacyEvent = false;
       for (const key of events.keys()) {
@@ -676,6 +856,7 @@
         handFrom = currentMax + 1;
         lastSeenMove = currentMax;
         handReset = true;
+        handCheckpoint = undefined;
         settled = { from: undefined, start: null };
         changed = true;
       }
@@ -711,6 +892,11 @@
       const domMax = Math.max(...moves);
       // Moves missing between the last visit and the oldest log now loaded: restart the record.
       const restarted = handFrom === undefined || lastSeenMove === undefined || domMin > lastSeenMove + 1;
+      if (restarted && handCheckpoint) {
+        handCheckpoint = undefined;
+        settled = { from: undefined, start: null };
+        changed = true;
+      }
       const from = restarted ? domMin : handReset ? handFrom : Math.min(handFrom, domMin);
       const seen = Math.max(lastSeenMove ?? domMax, domMax);
       if (from !== handFrom || seen !== lastSeenMove) {
@@ -722,8 +908,7 @@
     }
     if (changed) {
       eventsVersion += 1;
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(save, 150);
+      scheduleSave();
     }
     render();
   }
@@ -738,9 +923,9 @@
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   window.addEventListener("resize", position);
   document.addEventListener("visibilitychange", () => {
+    resetMismatchTimer();
     if (document.hidden) return;
     // Queued BGA animations (and their panel updates) only run again from now on.
-    mismatchSince = Date.now();
     render();
   });
   window.addEventListener("pagehide", () => {

@@ -42,7 +42,6 @@
 #cbv-panel [hidden] { display: none !important; }
 #cbv-panel .cbv-content { height: var(--cbv-summary-height); display: flex; flex-direction: column; }
 #cbv-panel .cbv-body { flex: 1; min-height: 0; overflow: auto; padding: 5px; }
-#cbv-panel .cbv-body:not(#cbv-costs) { display: flex; flex-direction: column; overflow: hidden; }
 /* Chrome ignores ::-webkit-scrollbar when a scrollbar-color is inherited from the page, so reset it here. */
 #cbv-panel .cbv-body { scrollbar-color: auto; scrollbar-width: auto; }
 #cbv-panel .cbv-body::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
@@ -92,10 +91,17 @@
 #cbv-panel .cbv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 #cbv-panel .cbv-history { margin: 0; padding: 0; list-style: none; }
 #cbv-panel .cbv-event-history { margin: 0; padding: 0; list-style: none; }
-#cbv-panel .cbv-history-view { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+#cbv-panel .cbv-history-view { display: block; }
+#cbv-panel .cbv-dice-view:not(.cbv-showing-history) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+#cbv-panel .cbv-dice-view:not(.cbv-showing-history) .cbv-view-header { flex: none; }
+#cbv-panel .cbv-dice-view:not(.cbv-showing-history) .cbv-history-content { flex: 1; min-height: 0; }
 #cbv-panel .cbv-view-header {
   display: flex;
-  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 5px;
@@ -115,7 +121,7 @@
   cursor: pointer;
   font: 10px Arial, "Helvetica Neue", Helvetica, sans-serif;
 }
-#cbv-panel .cbv-history-content { flex: 1; min-height: 0; overflow: auto; }
+#cbv-panel .cbv-history-content { display: block; }
 #cbv-panel .cbv-dice-summary { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 #cbv-panel .cbv-event {
   padding: 3px 4px;
@@ -124,6 +130,9 @@
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
+#cbv-panel .cbv-resource-delta { display: inline-flex; align-items: center; gap: 1px; white-space: nowrap; font-weight: 700; }
+#cbv-panel .cbv-resource-gain { color: #28773a; }
+#cbv-panel .cbv-resource-loss { color: #b1261b; }
 #cbv-panel .cbv-event-empty { padding: 3px 2px; color: #8d7a52; font-size: 10px; list-style: none; }
 #cbv-panel .cbv-roll {
   display: flex;

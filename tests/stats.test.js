@@ -179,6 +179,12 @@ test("lê gastos, descartes, monopólio, trocas com banco e jogadores e a carta 
     assert.deepEqual([event.type, event.actor, event.resources, event.reversible, event.category],
       ["spend", "3", { lumber: 1, brick: 2 }, reversible, category]);
   }
+  const road = at(1, "Jo constrói uma estrada por", [[["lumber"]]]);
+  assert.equal(road.label, "construiu uma estrada");
+  assert.equal(validEvent(road), true);
+  assert.equal(validEvent({ ...road, label: 1 }), false);
+  assert.equal(at(1, "Jo melhorou a Aldeia para uma Cidade por", [[["lumber"]]]).label, "melhorou a aldeia para uma cidade");
+  assert.equal(at(1, "Jo builds a road for", [[["lumber"]]]).label, "construiu a road");
   const bank = at(2, "João negocia com o banco: 4 → 1", [[["ore", "4"]], [["wool"]]]);
   assert.deepEqual([bank.type, bank.actor, bank.partner, bank.gives, bank.gets, bank.reversible],
     ["trade", "2", null, { ore: 4 }, { wool: 1 }, true]);
@@ -273,4 +279,19 @@ test("mão estimada: não oculta um recurso possível só por ter baixa probabil
   const [ana] = handEstimate(events, players);
   assert.deepEqual([ana.hand.lumber, ana.hand.grain, ana.range.grain, ana.unassigned, ana.total],
     [98, 0, [0, 1], 1, 99]);
+});
+
+test("mão sincronizada preserva recursos garantidos e aplica roubos e gastos posteriores", () => {
+  const initialHands = {
+    1: { resources: { lumber: 1, brick: 1, wool: 0, grain: 0, ore: 0 }, unknown: 0 },
+    3: { resources: { lumber: 0, brick: 0, wool: 0, grain: 1, ore: 0 }, unknown: 2 }
+  };
+  const events = [
+    readLog(log("João rouba de Ana de Souza", [], "2"), players),
+    at(3, "João descarta", [[["brick"]]])
+  ];
+  const [ana, joao, jo] = handEstimate(events, players, { initialHands });
+  assert.deepEqual([ana.hand.lumber, ana.hand.brick, ana.unassigned, ana.total], [1, 0, 0, 1]);
+  assert.deepEqual([joao.total, joao.unassigned], [0, 0]);
+  assert.deepEqual([jo.hand.grain, jo.unknown, jo.unassigned, jo.total], [1, 2, 2, 3]);
 });
