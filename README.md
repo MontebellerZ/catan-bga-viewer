@@ -20,6 +20,8 @@ do mapa, em um painel com quatro abas e visual de pergaminho:
     conforme a mão da vítima (uma carta comum na mão é mais provável), e gastos, trocas
     e "não tem" do monopólio posteriores descartam as possibilidades impossíveis. Para o
     ladrão ou a vítima, o aviso privado "Você recebe/perde …" revela a carta.
+    Ao reabrir a mesa, esses avisos podem vir sem identificação da jogada: são
+    associados ao roubo vizinho somente quando não há ambiguidade.
     - Os valores por recurso mostram somente o mínimo entre os cenários coerentes considerados.
       Células destacadas podem ter mais; passe o mouse para ver o máximo e a média estimada.
     - `?` (sempre visível, inclusive como `0`): cartas restantes sem recurso garantido,
@@ -50,6 +52,12 @@ do mapa, em um painel com quatro abas e visual de pergaminho:
 Não há botão de ocultar nem bolinha flutuante. As contagens continuam sendo
 atualizadas em segundo plano enquanto outra aba está aberta.
 
+O botão **↻**, ao lado do aviso no canto inferior direito do painel, relê os logs carregados e
+recalcula dados, roubos e recursos, inclusive a mão estimada com os totais da BGA.
+Substitui o trecho carregado do cache, sem duplicar eventos nem apagar o histórico
+anterior que já não está na tela. Também descarta o ponto de sincronização da mão
+para reconstruí-la novamente. Não recarrega a página nem busca logs ausentes no site.
+
 ## Instalação
 
 1. Abra `chrome://extensions` ou `edge://extensions`.
@@ -73,6 +81,11 @@ Não é necessário executar npm ou um servidor. Depois de alterar os arquivos, 
 - Salva os eventos localmente por número de mesa e usa `data-move-id` para não duplicar
   ao recarregar. Os dados ficam no navegador, não são sincronizados entre dispositivos.
   Logs sem identificador de jogada só são contabilizados na sessão atual.
+- Aguarda a BGA terminar o carregamento inicial antes de reconstruir as estatísticas:
+  os totais públicos podem aparecer antes dos últimos logs. Os controles
+  "Repetição dos últimos movimentos" e "Repetir jogo" não contam como jogadas.
+  Cartas reveladas que possam ser associadas com segurança a um roubo são salvas
+  com a identificação dessa jogada, mesmo se o ID visual do log mudar ao reabrir.
 - Ao instalar no meio de uma partida, só pode recuperar os logs carregados pelo site
   e os eventos salvos anteriormente pela extensão. Se a BGA oferecer carregar logs
   antigos, eles serão incorporados automaticamente quando aparecerem no DOM.

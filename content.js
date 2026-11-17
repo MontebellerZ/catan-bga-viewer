@@ -25,6 +25,7 @@
   const historyView = { resources: false, dice: false, thefts: false };
   let storageError = "";
   let rollbackWarning = "";
+  let reloadMessage = "";
   let scanTimer;
   let saveTimer;
   let saving = false;
@@ -151,8 +152,20 @@
     const status = element("div", "cbv-status");
     status.id = "cbv-status";
     status.setAttribute("role", "status");
-    content.append(status);
     panel.append(content);
+    const footer = element("div", "cbv-footer");
+    const reload = element("button", "cbv-history-button cbv-reload", "\u21bb");
+    reload.id = "cbv-reload";
+    reload.type = "button";
+    reload.title = "Reler e recalcular os logs carregados, preservando o histórico anterior";
+    reload.setAttribute("aria-label", "Recalcular logs");
+    reload.disabled = true;
+    reload.addEventListener("click", () => {
+      clearTimeout(scanTimer);
+      scan({ recalculate: true });
+    });
+    footer.append(status, reload);
+    panel.append(footer);
     // Keep the original node: BGA updates its resource checks and trade rates in place.
     summary.replaceWith(panel);
     panel.querySelector("#cbv-costs").append(summary);
@@ -171,7 +184,7 @@
       button.tabIndex = selected ? 0 : -1;
       panel.querySelector(`#cbv-${name}`).hidden = !selected;
     }
-    panel.querySelector("#cbv-status").hidden = tab === "costs";
+    panel.querySelector("#cbv-status").style.visibility = tab === "costs" ? "hidden" : "";
     position();
   }
 
@@ -597,6 +610,11 @@
       renderResourceHistory(resourceEvents)));
   }
 
+  function logsLoading() {
+    const mask = document.getElementById("loader_mask");
+    return mask && mask.getClientRects().length > 0 && getComputedStyle(mask).visibility !== "hidden";
+  }
+
   // Exact card counts BGA shows on each player panel (public information).
   function readHandTotals() {
     const totals = {};
@@ -696,6 +714,17 @@
 
   function render() {
     if (!panel) return;
+    if (logsLoading()) {
+      resetMismatchTimer();
+      lastRender = "";
+      const status = panel.querySelector("#cbv-status");
+      status.textContent = storageError || "Aguardando a BGA carregar os últimos movimentos...";
+      status.classList.toggle("cbv-error", Boolean(storageError));
+      panel.querySelector("#cbv-reload").disabled = true;
+      // The loader may disappear through a style change, which the log observer does not watch.
+      if (scanTimer === undefined) scanTimer = setTimeout(scan, 150);
+      return;
+    }
     const summary = stats.summarize(events.values(), players);
     const rolls = stats.rollHistory(events.values());
     const theftHistory = stats.theftHistory(events.values());
@@ -704,7 +733,8 @@
     const potential = stats.potential(board, players);
     const hands = estimateHands();
     const signature = JSON.stringify([summary, rolls, theftHistory, resourceEvents, potential, hands, board.visible, storageError,
-      rollbackWarning, handReset, Boolean(handCheckpoint), Boolean(logs), readResourceSprite()]);
+      rollbackWarning, reloadMessage, handReset, Boolean(handCheckpoint), Boolean(logs), readResourceSprite()]);
+    panel.querySelector("#cbv-reload").disabled = !logs?.querySelector(".log[id]");
     if (signature === lastRender) return;
     lastRender = signature;
     renderResources(summary, board, potential, hands, resourceEvents);
@@ -762,16 +792,20 @@
       ? "Estimativa reiniciada após retrocesso: o cache antigo não identificava quais ações eram reversíveis."
       : handCheckpoint ? "Mão sincronizada com a BGA após divergência; cartas sem identificação aparecem em ?."
       : !logs ? "Aguardando os logs da mesa..."
-      : "Histórico lido + salvo nesta mesa. Logs antigos não carregados podem faltar.");
+      : reloadMessage || "Histórico lido + salvo nesta mesa. Logs antigos não carregados podem faltar.");
     status.classList.toggle("cbv-error", Boolean(storageError || rollbackWarning || handReset));
     position();
   }
 
-  function scan() {
+  function scan({ recalculate = false } = {}) {
     scanTimer = undefined;
     if (!panel?.isConnected) {
       if (!mount()) return;
       lastRender = "";
+    }
+    if (logsLoading()) {
+      render();
+      return;
     }
     players = [...document.querySelectorAll('[id^="player_name_"]')].map((node) => {
       const id = node.id.slice("player_name_".length);
@@ -790,6 +824,49 @@
       index
     })).sort((a, b) => a.id - b.id || a.index - b.index);
     const hasMove = (entry) => Number.isInteger(entry.move) && entry.move > 0;
+    let changed = false;
+    for (const [position, entry] of entries.entries()) {
+      if (entry.event?.type !== "reveal" || hasMove(entry)
+        || Object.values(entry.event.resources).reduce((sum, amount) => sum + amount, 0) !== 1) continue;
+      const candidates = [];
+      // Replayed private notes can precede or follow the public theft and omit data-move-id.
+      for (const direction of [-1, 1]) {
+        const interveningMoves = [];
+        for (let cursor = position + direction; cursor >= 0 && cursor < entries.length; cursor += direction) {
+          const neighbor = entries[cursor];
+          if (neighbor.event && neighbor.event.type !== "reveal") {
+            if (neighbor.event.type === "theft" && hasMove(neighbor)
+              && interveningMoves.every((move) => move === neighbor.move)) candidates.push(neighbor);
+            break;
+          }
+          if (hasMove(neighbor)) interveningMoves.push(neighbor.move);
+        }
+      }
+      if (candidates.length !== 1) continue;
+      if (events.delete(entry.event.key)) changed = true;
+      entry.move = candidates[0].move;
+      entry.event.key = entry.event.key.replace(/^log:[^:]+:/, `move:${entry.move}:`);
+      entry.event.persistent = true;
+    }
+    if (recalculate && entries.length) {
+      const moves = entries.filter(hasMove).map((entry) => entry.move);
+      const first = Math.min(...moves);
+      const last = Math.max(...moves);
+      // Replace only the loaded interval; older cached logs may no longer be in the DOM.
+      for (const [key, event] of events) {
+        const move = moveId(event);
+        if (!move || Number(move) >= first && Number(move) <= last) events.delete(key);
+      }
+      handCheckpoint = undefined;
+      settled = { from: undefined, start: null };
+      handCache = { key: "", value: [] };
+      handReset = false;
+      rollbackWarning = "";
+      warnedMismatch.clear();
+      resetMismatchTimer();
+      reloadMessage = "Logs carregados recalculados. Histórico anterior preservado.";
+      changed = true;
+    }
     let active = [];
     const cancelled = new Set();
     for (const entry of entries) {
@@ -812,7 +889,6 @@
       active.push(entry);
     }
 
-    let changed = false;
     const newRollbacks = active.filter((entry) => entry.event?.type === "rollback"
       && hasMove(entry) && !events.has(entry.event.key));
     if (newRollbacks.length) {

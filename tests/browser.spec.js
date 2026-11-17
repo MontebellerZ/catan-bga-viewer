@@ -380,6 +380,194 @@ test("novos logs, duplicatas e cache verdadeiro do Chrome após recarregar", asy
   }
 });
 
+test("recalcular substitui os logs recentes do cache sem perder os antigos", async () => {
+  const oldRoll = rolls.slice(0, rolls.indexOf('<div class="log" id="log_2"'));
+  const recentRoll = '<div class="log" id="log_20" data-move-id="20">João lançou <div class="cat_log_token icon_die icon_die6"></div><div class="cat_log_token icon_die icon_die6"></div></div>';
+  const recentTheft = '<div class="log" id="log_21" data-move-id="21">João rouba de Ana de Souza</div>';
+  const gain = '<div class="log" id="log_22" data-move-id="22">João ganha <span>2<div class="cat_log_token icon_lumber"></div></span></div>';
+  const corrected = recentRoll.replaceAll("icon_die6", "icon_die1")
+    + '<div class="log" id="log_21" data-move-id="21">João passa</div>'
+    + gain.replace("icon_lumber", "icon_ore");
+  const page = await context.newPage();
+  try {
+    const { frame, state } = await table(page, "114", oldRoll + recentRoll + recentTheft + gain,
+      "catan", { 1: 0, 2: 2, 3: 0 });
+    await expect(frame.locator("#cbv-thefts .cbv-total")).toHaveText("1 roubos · 7 e cavaleiro");
+    await page.waitForTimeout(350);
+    state.history = corrected;
+    await page.reload();
+    await expect(frame.locator("#cbv-thefts .cbv-total")).toHaveText("1 roubos · 7 e cavaleiro");
+    const reload = frame.getByRole("button", { name: "Recalcular logs", exact: true });
+    const row = frame.locator("#cbv-resources table").first().locator("tbody tr").nth(1).locator("td");
+    const footerLayout = async () => reload.evaluate((button) => {
+      const bounds = button.getBoundingClientRect();
+      const panel = button.closest("#cbv-panel").getBoundingClientRect();
+      const status = document.getElementById("cbv-status").getBoundingClientRect();
+      return {
+        right: panel.right - bounds.right,
+        bottom: panel.bottom - bounds.bottom,
+        separated: status.right <= bounds.left,
+        sameRow: status.top < bounds.bottom && bounds.top < status.bottom
+      };
+    });
+    expect(await footerLayout()).toEqual({ right: 6, bottom: 6, separated: true, sameRow: true });
+    await reload.click();
+    await expect(row).toHaveText(["0", "0", "0", "0", "2", "0", "2"]);
+    await expect(frame.locator("#cbv-thefts .cbv-total")).toHaveText("0 roubos · 7 e cavaleiro");
+    await expect(frame.locator("#cbv-dice .cbv-total")).toHaveText("2 rolagens contabilizadas");
+    await expect(frame.locator("#cbv-status")).toContainText("recalculados");
+    expect(await footerLayout()).toEqual({ right: 6, bottom: 6, separated: true, sameRow: true });
+    await reload.click();
+    await expect(row).toHaveText(["0", "0", "0", "0", "2", "0", "2"]);
+    await frame.getByRole("tab", { name: "Dados", exact: true }).click();
+    await frame.locator("#cbv-dice-history-button").click();
+    await expect(frame.locator("#cbv-roll-history .cbv-sum")).toHaveText(["2", "7"]);
+    await reload.click();
+    await expect(frame.locator("#cbv-dice-history-button")).toHaveText("Voltar");
+    await frame.getByRole("tab", { name: "Custos de construção", exact: true }).click();
+    await expect(reload).toBeVisible();
+    await reload.click();
+    await expect(frame.locator("#cat_summary")).toBeVisible();
+    await page.waitForTimeout(350);
+    await page.reload();
+    await expect(row).toHaveText(["0", "0", "0", "0", "2", "0", "2"]);
+    await expect(frame.locator("#cbv-thefts .cbv-total")).toHaveText("0 roubos · 7 e cavaleiro");
+    await expect(frame.locator("#cbv-dice .cbv-total")).toHaveText("2 rolagens contabilizadas");
+    await frame.locator("#logs").evaluate((logs) => {
+      logs.insertAdjacentHTML("beforeend", '<div class="log" id="log_23" data-move-id="22">João ganha <span><div class="cat_log_token icon_grain"></div></span></div>');
+      document.getElementById("cat_panel_score_resources_2").textContent = "3";
+    });
+    await expect(row).toHaveText(["0", "0", "0", "1", "2", "0", "3"]);
+  } finally {
+    await page.close();
+  }
+});
+
+test("recalcular reinicia uma mão sincronizada e aguarda logs quando estão ausentes", async () => {
+  const gain = '<div class="log" id="log_1" data-move-id="1">João ganha <span>4<div class="cat_log_token icon_lumber"></div></span></div>';
+  const page = await context.newPage();
+  try {
+    const { frame } = await table(page, "115", "", "catan", { 1: 0, 2: 1, 3: 0 });
+    const reload = frame.getByRole("button", { name: "Recalcular logs", exact: true });
+    await expect(reload).toBeDisabled();
+    await frame.locator("#logs").evaluate((logs, html) => { logs.innerHTML = html; }, gain);
+    await expect(reload).toBeEnabled();
+    const row = frame.locator("#cbv-resources table").first().locator("tbody tr").nth(1).locator("td");
+    await expect(row).toHaveText(["0", "0", "0", "0", "0", "1", "1"], { timeout: 7000 });
+    await expect(frame.locator("#cbv-status")).toContainText("sincronizada com a BGA");
+    await frame.locator("#log_1").evaluate((log) => {
+      log.innerHTML = 'João ganha <span><div class="cat_log_token icon_lumber"></div></span>';
+    });
+    await reload.click();
+    await expect(row).toHaveText(["1", "0", "0", "0", "0", "0", "1"]);
+    await expect(frame.locator("#cbv-status")).toContainText("recalculados");
+    await page.waitForTimeout(350);
+    await page.reload();
+    await expect(row).toHaveText(["1", "0", "0", "0", "0", "0", "1"]);
+    await expect(reload).toBeDisabled();
+  } finally {
+    await page.close();
+  }
+});
+
+test("aguarda o carregamento inicial antes de reconciliar logs e totais da BGA", async () => {
+  const partial = '<div id="loader_mask" style="display:flex">Carregando</div>'
+    + '<div class="log" id="log_1" data-move-id="1">João ganha <span>4<div class="cat_log_token icon_lumber"></div></span></div>'
+    + '<div class="log" id="log_2"><div class="roundedbox"><p><button class="replay_last_move_button">Repetição dos últimos movimentos</button></p></div></div>';
+  const spend = '<div class="log" id="log_3" data-move-id="2">João descarta <span>3<div class="cat_log_token icon_lumber"></div></span></div>';
+  const page = await context.newPage();
+  try {
+    const { frame, state } = await table(page, "116", partial, "catan", { 1: 0, 2: 1, 3: 0 });
+    await expect(frame.locator("#cbv-panel")).toBeAttached();
+    await page.waitForTimeout(4500);
+    await expect(frame.locator("#cbv-status")).toContainText("Aguardando a BGA");
+    await expect(frame.locator("#cbv-reload")).toBeDisabled();
+    await frame.locator("#logs").evaluate((logs, html) => {
+      logs.insertAdjacentHTML("beforeend", html);
+      document.getElementById("loader_mask").style.display = "none";
+    }, spend);
+    const row = frame.locator("#cbv-resources table").first().locator("tbody tr").nth(1).locator("td");
+    await expect(row).toHaveText(["1", "0", "0", "0", "0", "0", "1"]);
+    await expect(frame.locator("#cbv-status")).not.toContainText("sincronizada com a BGA");
+    await frame.locator("#cbv-reload").click();
+    await expect(row).toHaveText(["1", "0", "0", "0", "0", "0", "1"]);
+    await page.waitForTimeout(350);
+    state.history = partial + spend;
+    await page.reload();
+    await expect(frame.locator("#cbv-status")).toContainText("Aguardando a BGA");
+    // BGA can hide its loader by changing only a style attribute, without another log mutation.
+    await frame.locator("#loader_mask").evaluate((mask) => { mask.style.display = "none"; });
+    await expect(row).toHaveText(["1", "0", "0", "0", "0", "0", "1"]);
+  } finally {
+    await page.close();
+  }
+});
+
+test("associa cartas reveladas sem jogada ao roubo próximo e não duplica ao reabrir", async () => {
+  const gain = '<div class="log" id="log_1" data-move-id="110">Ana de Souza ganha <span><div class="cat_log_token icon_lumber"></div><div class="cat_log_token icon_ore"></div></span></div>';
+  const reveal = '<div class="log" id="log_17">Você recebe <span><div class="cat_log_token icon_ore"></div></span></div>';
+  const theft = '<div class="log" id="log_18" data-move-id="116">João move o Ladrão</div>'
+    + '<div class="log" id="log_19" data-move-id="116">João rouba de Ana de Souza</div>';
+  const replay = '<div class="log" id="log_20"><div class="roundedbox"><p><button class="replay_last_move_button">Repetição dos últimos movimentos</button></p></div></div>';
+  const page = await context.newPage();
+  try {
+    const { frame, state } = await table(page, "117", gain + reveal + replay,
+      "catan", { 1: 2, 2: 0, 3: 0 });
+    const rows = frame.locator("#cbv-resources table").first().locator("tbody tr");
+    const victim = rows.nth(0).locator("td");
+    const thief = rows.nth(1).locator("td");
+    await expect(victim).toHaveText(["1", "0", "0", "0", "1", "0", "2"]);
+    await frame.locator("#logs").evaluate((logs, html) => {
+      document.getElementById("cat_panel_score_resources_1").textContent = "1";
+      document.getElementById("cat_panel_score_resources_2").textContent = "1";
+      logs.insertAdjacentHTML("beforeend", html);
+    }, theft);
+    state.totals = { 1: 1, 2: 1, 3: 0 };
+    await expect(victim).toHaveText(["1", "0", "0", "0", "0", "0", "1"]);
+    await expect(thief).toHaveText(["0", "0", "0", "0", "1", "0", "1"]);
+    await frame.getByRole("tab", { name: "Roubos", exact: true }).click();
+    await frame.locator("#cbv-thefts-history-button").click();
+    await expect(frame.locator('#cbv-theft-history .cbv-res[aria-label="Minério"]')).toHaveCount(1);
+    await page.waitForTimeout(350);
+
+    // Visual log IDs and private-note ordering can change after reopening the table.
+    let nextId = 100;
+    state.history = (gain + theft + reveal + replay).replace(/id="log_\d+"/g, () => `id="log_${++nextId}"`);
+    await page.reload();
+    await expect(victim).toHaveText(["1", "0", "0", "0", "0", "0", "1"]);
+    await expect(thief).toHaveText(["0", "0", "0", "0", "1", "0", "1"]);
+    await frame.locator("#cbv-resources-history-button").click();
+    await expect(frame.locator("#cbv-resource-history .cbv-event")).toHaveCount(2);
+    await frame.locator("#cbv-reload").click();
+    await expect(frame.locator("#cbv-resource-history .cbv-event")).toHaveCount(2);
+    await frame.locator("#cbv-resources-history-button").click();
+    await expect(thief).toHaveText(["0", "0", "0", "0", "1", "0", "1"]);
+  } finally {
+    await page.close();
+  }
+});
+
+test("não atribui uma revelação ambígua entre dois roubos a uma jogada arbitrária", async () => {
+  const history = '<div class="log" id="log_1" data-move-id="1">Ana de Souza ganha <span><div class="cat_log_token icon_lumber"></div><div class="cat_log_token icon_ore"></div></span></div>'
+    + '<div class="log" id="log_2" data-move-id="2">João rouba de Ana de Souza</div>'
+    + '<div class="log" id="log_3">Você perde <span><div class="cat_log_token icon_ore"></div></span></div>'
+    + '<div class="log" id="log_4" data-move-id="3">Jo rouba de Ana de Souza</div>';
+  const page = await context.newPage();
+  try {
+    const { frame } = await table(page, "118", history, "catan", { 1: 0, 2: 1, 3: 1 });
+    const rows = frame.locator("#cbv-resources table").first().locator("tbody tr");
+    for (const index of [1, 2]) {
+      await expect(rows.nth(index).locator("td")).toHaveText(["0", "0", "0", "0", "0", "1", "1"]);
+    }
+    await frame.getByRole("tab", { name: "Roubos", exact: true }).click();
+    await frame.locator("#cbv-thefts-history-button").click();
+    await expect(frame.locator("#cbv-theft-history .cbv-event")).toHaveCount(2);
+    await expect(frame.locator("#cbv-theft-history .cbv-res")).toHaveCount(0);
+  } finally {
+    await page.close();
+  }
+});
+
 test("divergência persistente sincroniza a mão com a BGA e continua após recarregar", async () => {
   const firstGain = '<div class="log" id="log_1" data-move-id="1"><div class="roundedbox">João ganha <span>4<div class="cat_log_token icon_lumber"></div></span></div></div>'
     + '<div class="log" id="log_2" data-move-id="1"><div class="roundedbox">Ana de Souza ganha <span>2<div class="cat_log_token icon_grain"></div></span></div></div>';
