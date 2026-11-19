@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  isCatanUrl, readLog, summarize, validEvent, rollHistory, theftHistory, resourceHistory, handEstimate, potential, pips
+  isCatanUrl, readLog, readSetupActor, summarize, validEvent, rollHistory, theftHistory, resourceHistory, handEstimate, potential, pips
 } = require("../stats.js");
 
 const players = [
@@ -78,6 +78,16 @@ test("reconhece o retrocesso de Catan em português e inglês", () => {
     const event = readLog(log(text, [], "67"), players);
     assert.deepEqual([event.type, event.actor, event.key], ["rollback", "2", "move:67:rollback:2"]);
     assert.equal(validEvent(event), true);
+  }
+});
+
+test("identifica a aldeia inicial sem confundir estrada, construção paga ou nomes prefixados", () => {
+  for (const action of ["coloca uma aldeia", "places a settlement"]) {
+    assert.equal(readSetupActor(log(`João ${action}`), players), "2");
+    assert.equal(readSetupActor(log(`Jo ${action}`), players), "3");
+  }
+  for (const action of ["coloca uma estrada", "constrói uma aldeia por", "ganha", "lançou"]) {
+    assert.equal(readSetupActor(log(`João ${action}`), players), undefined);
   }
 });
 

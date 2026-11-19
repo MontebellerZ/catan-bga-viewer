@@ -696,6 +696,66 @@ const undoBuild = '<div class="log" id="log_4" data-move-id="3"><div class="roun
 const rollback = (id, move) => `<div class="log" id="log_${id}" data-move-id="${move}"><div class="roundedbox">João retrocede</div></div>`
   + `<div class="log" id="log_${id + 1}" data-move-id="${move}"><div class="roundedbox">João desfaz a sua jogada</div></div>`;
 
+test("retrocesso da aldeia inicial remove os recursos desfeitos, inclusive do cache e ao recalcular", async () => {
+  const placement = '<div class="log" id="log_15" data-move-id="12"><div class="roundedbox">Ana de Souza coloca uma aldeia</div></div>';
+  const cancelledGain = '<div class="log" id="log_16" data-move-id="12">Ana de Souza ganha <span>1<div class="cat_log_token icon_lumber"></div>2<div class="cat_log_token icon_grain"></div></span></div>';
+  const undo = '<div class="log" id="log_17" data-move-id="12">Ana de Souza retrocede</div>'
+    + '<div class="log" id="log_18" data-move-id="12">Ana de Souza desfaz a sua jogada</div>';
+  const replacement = '<div class="log" id="log_19" data-move-id="13">Ana de Souza coloca uma aldeia</div>'
+    + '<div class="log" id="log_20" data-move-id="13">Ana de Souza ganha <span>2<div class="cat_log_token icon_lumber"></div>1<div class="cat_log_token icon_brick"></div></span></div>';
+  const subsequent = '<div class="log" id="log_23" data-move-id="15">Ana de Souza lançou <div class="cat_log_token icon_die icon_die3"></div><div class="cat_log_token icon_die icon_die2"></div></div>'
+    + '<div class="log" id="log_24" data-move-id="15">Ana de Souza ganha <span>2<div class="cat_log_token icon_brick"></div>1<div class="cat_log_token icon_ore"></div></span></div>'
+    + '<div class="log" id="log_27" data-move-id="16">Ana de Souza constrói uma estrada por <span><div class="cat_log_token icon_lumber"></div><div class="cat_log_token icon_brick"></div></span></div>'
+    + '<div class="log" id="log_54" data-move-id="27">Ana de Souza ganha <span><div class="cat_log_token icon_wool"></div></span></div>';
+  const full = placement + cancelledGain + undo + replacement + subsequent;
+  const page = await context.newPage();
+  try {
+    const { frame, state } = await table(page, "119", placement + cancelledGain,
+      "catan", { 1: 3, 2: 0, 3: 0 });
+    const row = frame.locator("#cbv-resources table").first().locator("tbody tr").first().locator("td");
+    await expect(row).toHaveText(["1", "0", "0", "2", "0", "0", "3"]);
+    await frame.locator("#logs").evaluate((logs, html) => {
+      logs.insertAdjacentHTML("beforeend", html);
+      document.getElementById("cat_panel_score_resources_1").textContent = "5";
+    }, undo + replacement + subsequent);
+    const expected = ["1", "2", "1", "0", "1", "0", "5"];
+    await expect(row).toHaveText(expected);
+    await frame.locator("#cbv-reload").click();
+    await expect(row).toHaveText(expected);
+    await frame.locator("#cbv-resources-history-button").click();
+    await expect(frame.locator("#cbv-resource-history .cbv-event")).toHaveCount(4);
+    await frame.locator("#cbv-resources-history-button").click();
+    await expect(frame.locator("#cbv-dice .cbv-total")).toHaveText("1 rolagens contabilizadas");
+    await page.waitForTimeout(350);
+
+    // Reopening retains old rollback logs, but must preserve subsequent valid production.
+    state.history = full.replace(/id="log_(\d+)"/g, (_, id) => `id="log_${Number(id) + 100}"`);
+    state.totals = { 1: 5, 2: 0, 3: 0 };
+    await page.reload();
+    await expect(row).toHaveText(expected);
+    await frame.locator("#cbv-reload").click();
+    await expect(row).toHaveText(expected);
+    await page.waitForTimeout(4500);
+    await expect(row).toHaveText(expected);
+    await expect(frame.locator("#cbv-status")).not.toContainText("sincronizada com a BGA");
+
+    // Recover a saved conservative checkpoint when an older placement log becomes available.
+    state.history = full.replace(placement, "");
+    await page.reload();
+    await expect(row).toHaveText(["0", "0", "0", "0", "0", "5", "5"], { timeout: 7000 });
+    await page.waitForTimeout(350);
+    await page.reload();
+    await expect(frame.locator("#cbv-status")).toContainText("sincronizada com a BGA");
+    await frame.locator("#logs").evaluate((logs, html) => logs.insertAdjacentHTML("beforeend", html), placement);
+    await expect(row).toHaveText(expected);
+    await expect(frame.locator("#cbv-status")).not.toContainText("sincronizada com a BGA");
+    await frame.locator("#cbv-reload").click();
+    await expect(row).toHaveText(expected);
+  } finally {
+    await page.close();
+  }
+});
+
 test("retrocesso que alcança a sincronização invalida a mão anterior", async () => {
   const gain = '<div class="log" id="log_1" data-move-id="1"><div class="roundedbox">João ganha <span>4<div class="cat_log_token icon_lumber"></div></span></div></div>';
   const build = '<div class="log" id="log_2" data-move-id="2"><div class="roundedbox">João constrói uma estrada por <span><div class="cat_log_token icon_lumber"></div><div class="cat_log_token icon_brick"></div></span></div></div>';

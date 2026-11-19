@@ -51,6 +51,15 @@
     .map((resource) => `${resource}${amounts[resource]}`).join(",");
   const cardCount = (amounts) => Object.values(amounts).reduce((sum, amount) => sum + amount, 0);
 
+  function readSetupActor(element, players) {
+    const text = normalize(messageText(element));
+    return players.find((player) => {
+      const name = normalize(player.name);
+      return text.startsWith(`${name} `)
+        && /^(?:coloca uma aldeia|places a settlement)\b/.test(text.slice(name.length).trim());
+    })?.id;
+  }
+
   function readLog(element, players) {
     const text = normalize(messageText(element));
     const dice = [...element.querySelectorAll(".icon_die")].map((die) => {
@@ -480,7 +489,7 @@
   }
 
   const api = {
-    isCatanUrl, readLog, validEvent, summarize, rollHistory, theftHistory, resourceHistory, handEstimate, potential, pips, resources
+    isCatanUrl, readLog, readSetupActor, validEvent, summarize, rollHistory, theftHistory, resourceHistory, handEstimate, potential, pips, resources
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.CatanStats = api;

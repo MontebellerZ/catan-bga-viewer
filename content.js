@@ -821,10 +821,18 @@
       id: Number(/(\d+)$/.exec(log.id)?.[1] || 0),
       move: Number(log.getAttribute("data-move-id")),
       event: stats.readLog(log, players),
+      setupActor: stats.readSetupActor(log, players),
       index
     })).sort((a, b) => a.id - b.id || a.index - b.index);
     const hasMove = (entry) => Number.isInteger(entry.move) && entry.move > 0;
     let changed = false;
+    for (const entry of entries) {
+      if (entry.event?.type !== "gain" || !hasMove(entry)) continue;
+      // Initial settlement resources are undone with the placement; dice production is not.
+      entry.event.reversible = entries.some((placement) => placement.move === entry.move
+        && placement.id < entry.id && placement.setupActor === entry.event.actor)
+        || events.get(entry.event.key)?.reversible === true;
+    }
     for (const [position, entry] of entries.entries()) {
       if (entry.event?.type !== "reveal" || hasMove(entry)
         || Object.values(entry.event.resources).reduce((sum, amount) => sum + amount, 0) !== 1) continue;
@@ -939,7 +947,13 @@
     }
     const activeKeys = new Set(active.filter((entry) => entry.event).map((entry) => entry.event.key));
     for (const key of cancelled) {
-      if (!activeKeys.has(key) && events.delete(key)) changed = true;
+      if (!activeKeys.has(key) && events.delete(key)) {
+        changed = true;
+        if (handCheckpoint && Number(moveId({ key })) <= handCheckpoint.through) {
+          handCheckpoint = undefined;
+          settled = { from: undefined, start: null };
+        }
+      }
     }
 
     // A move can produce several logs (build + gain, robber + theft); their numeric IDs grow over time.

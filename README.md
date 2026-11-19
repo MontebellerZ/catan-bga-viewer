@@ -103,8 +103,12 @@ Não é necessário executar npm ou um servidor. Depois de alterar os arquivos, 
   acompanhar novas ações e não apaga os históricos de dados, roubos ou recursos.
   Uma lacuna ou retrocesso que alcance o ponto de sincronização reinicia a estimativa
   com os logs ainda disponíveis.
-- Ao identificar um retrocesso, remove apenas construções e trocas com o banco do jogador
-  que foram desfeitas. Rolagens, roubos, cartas de desenvolvimento e trocas entre jogadores
+- Ao identificar um retrocesso, remove construções, trocas com o banco e recursos
+  recebidos pela colocação da aldeia inicial do jogador que foram desfeitos.
+  Os recursos iniciais são identificados pela colocação da aldeia na mesma jogada;
+  a produção normal dos dados é preservada. A correção também é aplicada ao cache e
+  ao botão de recalcular, invalidando uma sincronização baseada nesses recursos desfeitos.
+  Rolagens, roubos, cartas de desenvolvimento e trocas entre jogadores
   são preservados. Se o cache antigo não informar se um gasto/troca era reversível, a mão
   estimada reinicia com os totais atuais da BGA; as demais estatísticas continuam no histórico.
   Retrocessos antigos só podem ser corrigidos quando seu aviso ainda está nos logs carregados.
